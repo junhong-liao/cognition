@@ -1,0 +1,8 @@
+flask
+openai
+speechrecognition
+requests
+gTTS
+pygame
+opencv-python-headless
+pyaudio
