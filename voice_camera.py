@@ -75,20 +75,4 @@ def listen_for_command():
         audio = recognizer.listen(source)
 
     try:
-        # Step 2: Convert audio to text (recognize the question)
-        question = recognizer.recognize_google(audio)
-        print(f"Question heard: {question}")
-
-        # Step 3: Capture a photo using the webcam
-        photo_path = capture_photo()
-
-        # Step 4: Upload the photo and question to the backend
-        upload_photo(photo_path, question)
-
-    except Exception as e:
-        # Step 5: Handle any errors in the process
-        print(f"Error: {e}")
-        speak("Sorry, I couldn't understand your question.")
-
-if __name__ == "__main__":
-    listen_for_command()
+        # Step 2: Convert audio to text (recognize the questi
