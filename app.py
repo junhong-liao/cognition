@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 import openai
+import os
 
 app = Flask(__name__)
 
@@ -12,20 +13,40 @@ def home():
 @app.route("/process-image", methods=["POST"])
 
 def process_image():
+    # Check if an image file was included in the request
     if 'file' not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
 
+    # Get the image and question from the request
     image_file = request.files['file']
+    question = request.form.get('question', '')  # Gets the question, empty string if none provided
     image_path = "uploaded_image.jpg"
     image_file.save(image_path)
 
     try:
-        # Example image analysis using OpenAI
-        response = openai.Image.create(
-            model="image-alpha-001",  # Replace with the appropriate model
-            file=open(image_path, "rb")
+        # Use OpenAI's GPT-4 Vision API
+        response = openai.ChatCompletion.create(
+            model="gpt-4-vision-preview",  # GPT-4 with vision capabilities
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        # Include both the question and image in the prompt
+                        {"type": "text", "text": question},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"file://{os.path.abspath(image_path)}"
+                            }
+                        }
+                    ]
+                }
+            ]
         )
-        return jsonify({"result": response}), 200
+        
+        # Get the AI's response and send it back
+        answer = response.choices[0].message.content
+        return jsonify({"result": answer}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

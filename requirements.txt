@@ -6,3 +6,4 @@ gTTS
 pygame
 opencv-python-headless
 pyaudio
+lmnt
