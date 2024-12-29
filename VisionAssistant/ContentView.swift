@@ -6,7 +6,7 @@ struct ContentView: View {
     @StateObject private var speechRecognizer = SpeechRecognizer()
     @StateObject private var cameraController = CameraController()
     @State private var isListening = false
-    @State private var questionText = ""
+    @State private var response = ""
     
     var body: some View {
         VStack {
@@ -14,8 +14,8 @@ struct ContentView: View {
             CameraPreview(cameraController: cameraController)
                 .frame(height: 300)
             
-            // Question display
-            Text(questionText)
+            // Response text
+            Text(response)
                 .padding()
             
             // Listen button
@@ -38,9 +38,23 @@ struct ContentView: View {
         isListening = true
         speechRecognizer.startRecording { result in
             switch result {
-            case .success(let text):
-                questionText = text
-                captureAndSendPhoto(with: text)
+            case .success(let question):
+                // 1. Take photo
+                cameraController.capturePhoto { image in
+                    guard let image = image else { return }
+                    
+                    // 2. Send to backend
+                    NetworkManager.shared.uploadPhotoAndQuestion(image: image, question: question) { result in
+                        switch result {
+                        case .success(let answer):
+                            // 3. Get response and speak it
+                            response = answer
+                            LMNTSpeech.shared.speak(answer)
+                        case .failure(let error):
+                            print("Error: \(error)")
+                        }
+                    }
+                }
             case .failure(let error):
                 print("Recognition error: \(error)")
             }
@@ -51,20 +65,5 @@ struct ContentView: View {
     private func stopListening() {
         isListening = false
         speechRecognizer.stopRecording()
-    }
-    
-    private func captureAndSendPhoto(with question: String) {
-        cameraController.capturePhoto { image in
-            guard let image = image else { return }
-            NetworkManager.shared.uploadPhotoAndQuestion(image: image, question: question) { result in
-                switch result {
-                case .success(let response):
-                    // Use text-to-speech to speak the response
-                    speak(response)
-                case .failure(let error):
-                    print("Upload error: \(error)")
-                }
-            }
-        }
     }
 } 
