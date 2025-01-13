@@ -46,16 +46,16 @@ struct ContentView: View {
         .alert("Camera Not Available", isPresented: $viewModel.showCameraError) {
             Button("OK", role: .cancel) { }
             Button("Open Settings") {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
+                if let settingsURL = URL(string: "app-settings:") {
+                    openURL(settingsURL)
                 }
             }
         }
         .alert("Microphone Not Available", isPresented: $viewModel.showMicError) {
             Button("OK", role: .cancel) { }
             Button("Open Settings") {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
+                if let settingsURL = URL(string: "app-settings:") {
+                    openURL(settingsURL)
                 }
             }
         }
@@ -67,6 +67,7 @@ struct CameraView: View {
     let isSetup: Bool
     let isListening: Bool
     @StateObject private var cameraController = CameraController.shared
+    @Environment(\.openURL) private var openURL
     
     var body: some View {
         Group {

@@ -1,5 +1,23 @@
+import SwiftUI
 import Foundation
-import UIKit
+import UIKi
+
+// Network layer - deals with raw Data
+protocol NetworkServicing {
+    func uploadPhotoAndQuestion(imageData: Data, question: String) async throws -> VisionResponse
+}
+
+// Repository layer - format agnostic
+protocol VisionRepository {
+    func processImage(_ imageData: Data, question: String) async throws -> VisionResponse
+}
+
+// UI layer - handles conversion
+extension Image {
+    func prepareForUpload() async throws -> Data {
+        // Image conversion happens only at UI boundary
+    }
+}
 
 class NetworkManager: NetworkServicing {
     private let session: URLSession
@@ -12,11 +30,7 @@ class NetworkManager: NetworkServicing {
         self.session = URLSession(configuration: configuration)
     }
     
-    func uploadPhotoAndQuestion(image: UIImage, question: String) async throws -> VisionResponse {
-        guard let imageData = image.jpegData(compressionQuality: 0.8) else {
-            throw AppError.vision(.invalidImage)
-        }
-        
+    func uploadPhotoAndQuestion(imageData: Data, question: String) async throws -> VisionResponse {
         let url = URL(string: "\(baseURL)/process-image")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"

@@ -1,14 +1,14 @@
-import UIKit
+import SwiftUI
 
 /// Repository protocol for handling vision-related operations
 protocol VisionRepository {
     /// Process an image with a question and return a response
     /// - Parameters:
-    ///   - image: The image to analyze
+    ///   - image: The SwiftUI image to analyze
     ///   - question: The question about the image
     /// - Returns: A VisionResponse containing the analysis result
     /// - Throws: VisionError if processing fails
-    func processImage(_ image: UIImage, question: String) async throws -> VisionResponse
+    func processImage(_ image: Image, question: String) async throws -> VisionResponse
     
     /// Cancel any ongoing processing
     func cancelProcessing()
@@ -18,13 +18,13 @@ protocol VisionRepository {
 }
 
 /// Errors that can occur during vision processing
-enum VisionError: Error {
+enum VisionError: Error, LocalizedError {
     case networkError
     case processingError(String)
     case invalidImage
     case serviceUnavailable
     
-    var localizedDescription: String {
+    var errorDescription: String? {
         switch self {
         case .networkError:
             return "Network connection error"
