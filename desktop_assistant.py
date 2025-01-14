@@ -4,6 +4,8 @@ import lmnt
 import cv2
 import pygame
 import speech_recognition as sr
+import tkinter as tk
+import threading
 
 # ------------------------------------------------------------------------------
 # Configuration
@@ -15,6 +17,18 @@ openai.api_key = OPENAI_API_KEY
 
 # If you're using a local backend or a different server, replace this
 BACKEND_URL = "http://127.0.0.1:5000/process-image"
+
+# ------------------------------------------------------------------------------
+# GUI Setup
+# ------------------------------------------------------------------------------
+
+def create_gui():
+    root = tk.Tk()
+    root.title("Desktop Assistant")
+    label = tk.Label(root, text="Desktop Assistant is running...", font=("Helvetica", 16))
+    label.pack(padx=20, pady=20)
+    root.geometry("300x100")
+    root.mainloop()
 
 # ------------------------------------------------------------------------------
 # Helper: Speak with LMNT
@@ -140,6 +154,10 @@ def process_image_and_question_with_openai(image_path: str, question: str) -> st
 # ------------------------------------------------------------------------------
 
 def main():
+    # Start the GUI in a separate thread
+    gui_thread = threading.Thread(target=create_gui)
+    gui_thread.start()
+
     try:
         # 1) Listen for a question
         question = listen_for_question()
