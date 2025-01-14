@@ -1,0 +1,11 @@
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary files
+desktop_photo.jpg
+response_temp.mp3 

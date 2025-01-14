@@ -1,53 +1,106 @@
 import SwiftUI
+import Combine
 import AVFoundation
-import Speech
 
 class VisionAssistantViewModel: ObservableObject {
-    @Published var isListening = false
-    @Published var response = ""
-    private var speechRecognizer: SpeechRecognizer
-    private var cameraController: CameraController
-    private var networkManager: NetworkManager
-
-    init(speechRecognizer: SpeechRecognizer = SpeechRecognizer(),
-         cameraController: CameraController = CameraController(),
-         networkManager: NetworkManager = NetworkManager.shared) {
+    @Published var isListening: Bool = false
+    @Published var response: String = ""
+    @Published var recognizedText: String = ""
+    @Published var errorMessage: String?
+    @Published var isSpeaking: Bool = false
+    @Published var showCameraError: Bool = false
+    @Published var showMicError: Bool = false
+    
+    private let speechRecognizer: SpeechRecognizing
+    private let cameraController: CameraControlling
+    private let processImageUseCase: ProcessImageUseCase
+    private let lmntSpeechService: SpeechSynthesizing
+    
+    init(
+        speechRecognizer: SpeechRecognizing,
+        cameraController: CameraControlling,
+        processImageUseCase: ProcessImageUseCase,
+        lmntSpeechService: SpeechSynthesizing
+    ) {
         self.speechRecognizer = speechRecognizer
         self.cameraController = cameraController
-        self.networkManager = networkManager
+        self.processImageUseCase = processImageUseCase
+        self.lmntSpeechService = lmntSpeechService
     }
-
+    
+    func onAppear() {
+        // Check if camera is set up, show error otherwise
+        if !cameraController.isSetup {
+            showCameraError = true
+        }
+    }
+    
+    func toggleListening() {
+        if isListening {
+            stopListening()
+        } else {
+            startListening()
+        }
+    }
+    
     func startListening() {
         isListening = true
+        recognizedText = ""
+        
         speechRecognizer.startRecording { [weak self] result in
             guard let self = self else { return }
+            
+            self.isListening = false
             switch result {
             case .success(let question):
+                // Save recognized text for display
+                self.recognizedText = question
+                // Process the question asynchronously
                 self.handleQuestion(question)
             case .failure(let error):
-                print("Recognition error: \(error)")
-            }
-            self.isListening = false
-        }
-    }
-
-    private func handleQuestion(_ question: String) {
-        cameraController.capturePhoto { [weak self] image in
-            guard let self = self, let image = image else { return }
-            self.networkManager.uploadPhotoAndQuestion(image: image, question: question) { result in
-                switch result {
-                case .success(let answer):
-                    self.response = answer
-                    LMNTSpeech.shared.speak(answer)
-                case .failure(let error):
-                    print("Error: \(error)")
-                }
+                // If error is microphone-related, showMicError
+                self.showMicError = true
+                self.errorMessage = "Error: \(error)"
             }
         }
     }
-
+    
     func stopListening() {
         isListening = false
         speechRecognizer.stopRecording()
+    }
+    
+    private func handleQuestion(_ question: String) {
+        cameraController.capturePhoto { [weak self] uiImage in
+            guard let self = self else { return }
+            
+            // If no image was captured, show camera error
+            guard let image = uiImage else {
+                self.showCameraError = true
+                return
+            }
+            
+            Task {
+                do {
+                    // Pass the image & question to the domain use case
+                    let answer = try await self.processImageUseCase.execute(image: image, question: question)
+                    // Update response for UI
+                    await MainActor.run {
+                        self.response = answer
+                    }
+                    // Speak the response
+                    try await self.lmntSpeechService.speak(answer)
+                    // Mark isSpeaking as false when done
+                    await MainActor.run {
+                        self.isSpeaking = false
+                    }
+                } catch {
+                    // Handle any errors from the use case or speechService
+                    await MainActor.run {
+                        self.errorMessage = "Error: \(error)"
+                    }
+                }
+            }
+        }
     }
 } 
