@@ -1,11 +1,20 @@
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
 import os
 import openai
 import lmnt
 import cv2
 import pygame
 import speech_recognition as sr
-import tkinter as tk
-import threading
+import requests
+import time
+import base64
+from openai import OpenAI
+import asyncio
+from lmnt.api import Speech
 
 # ------------------------------------------------------------------------------
 # Configuration
@@ -15,66 +24,37 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "YOUR_OPENAI_API_KEY")
 LMNT_API_KEY = os.getenv("LMNT_API_KEY", "YOUR_LMNT_API_KEY")
 openai.api_key = OPENAI_API_KEY
 
-# If you're using a local backend or a different server, replace this
+# Initialize the OpenAI client
+client = OpenAI()
+
+# If you have a local or specialized endpoint (replace or remove this if not needed):
 BACKEND_URL = "http://127.0.0.1:5000/process-image"
 
 # ------------------------------------------------------------------------------
-# GUI Setup
+# Helper: Listen for Question
 # ------------------------------------------------------------------------------
 
-def create_gui():
-    root = tk.Tk()
-    root.title("Desktop Assistant")
-    label = tk.Label(root, text="Desktop Assistant is running...", font=("Helvetica", 16))
-    label.pack(padx=20, pady=20)
-    root.geometry("300x100")
-    root.mainloop()
+def listen_for_question(timeout: int = 100, phrase_time_limit: int = 100) -> str:
+    r = sr.Recognizer()
+    with sr.Microphone() as source:
+        print("Please ask your question. Listening for up to 100 seconds...")
+        audio = r.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
+
+    try:
+        recognized_text = r.recognize_google(audio)
+        print(f"Recognized text: '{recognized_text}'")
+        return recognized_text
+    except sr.UnknownValueError:
+        raise RuntimeError("Speech recognition could not understand audio.")
+    except sr.RequestError as e:
+        raise RuntimeError(f"Could not request results from speech recognition service; {e}")
 
 # ------------------------------------------------------------------------------
-# Helper: Speak with LMNT
-# ------------------------------------------------------------------------------
-
-def speak_with_lmnt(text: str):
-    """
-    Convert text to speech using LMNT and play it using Pygame.
-    """
-    if not LMNT_API_KEY or LMNT_API_KEY == "YOUR_LMNT_API_KEY":
-        print("[Warning] No valid LMNT_API_KEY found. Skipping TTS.")
-        return
-
-    lmnt_client = lmnt.Client(api_key=LMNT_API_KEY)
-    speech = lmnt_client.synthesize(
-        text=text,
-        voice="your_preferred_voice",  # Adjust voice name if needed
-        speed=1.0
-    )
-
-    # Save to a temp file and play with pygame
-    speech.save("response_temp.mp3")
-
-    pygame.mixer.init()
-    pygame.mixer.music.load("response_temp.mp3")
-    pygame.mixer.music.play()
-
-    # Wait until playback completes
-    while pygame.mixer.music.get_busy():
-        pass
-
-    # Optionally remove the temp file after playback
-    if os.path.exists("response_temp.mp3"):
-        os.remove("response_temp.mp3")
-
-
-# ------------------------------------------------------------------------------
-# Helper: Capture Photo with OpenCV
+# Helper: Capture Photo
 # ------------------------------------------------------------------------------
 
 def capture_photo() -> str:
-    """
-    Capture a photo using the computer's webcam, save it to disk,
-    and return the path. Return None on failure.
-    """
-    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("Error: Unable to access the camera.")
         return None
@@ -88,100 +68,137 @@ def capture_photo() -> str:
     photo_path = "desktop_photo.jpg"
     cv2.imwrite(photo_path, frame)
     cap.release()
+    print(f"Captured photo and saved to '{photo_path}'.")
+    
     return photo_path
 
-
 # ------------------------------------------------------------------------------
-# Helper: Recognize Speech
-# ------------------------------------------------------------------------------
-
-def listen_for_question(timeout: int = 100, phrase_time_limit: int = 60) -> str:
-    """
-    Use the microphone to capture audio and convert it to text.
-    Returns the recognized text or raises an exception if recognition fails.
-    """
-    r = sr.Recognizer()
-    with sr.Microphone() as source:
-        print("Please ask your question. Listening for up to 100 seconds...")
-        audio = r.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
-
-    # Use Google's free speech API or a different one if you prefer
-    try:
-        recognized_text = r.recognize_google(audio)
-        print(f"Recognized text: '{recognized_text}'")
-        return recognized_text
-    except sr.UnknownValueError:
-        raise RuntimeError("Speech recognition could not understand audio.")
-    except sr.RequestError as e:
-        raise RuntimeError(f"Could not request results from speech recognition service; {e}")
-
-
-# ------------------------------------------------------------------------------
-# Helper: Send to OpenAI or Custom Backend
+# Helper: Process with OpenAI (Image-Capable Endpoint)
 # ------------------------------------------------------------------------------
 
-def process_image_and_question_with_openai(image_path: str, question: str) -> str:
+def encode_image(image_path: str) -> str:
     """
-    Stub function showing how to call OpenAI's GPT or a custom backend to process
-    the question + image. If you have a local backend, you can do a requests.post
-    to BACKEND_URL. Below is an example of directly calling GPT with text alone.
+    Read an image from disk and return a base64-encoded string of its binary data.
     """
-    # If you have a custom server that processes images, do something like:
-    #
-    #   with open(image_path, "rb") as img_file:
-    #       files = {"file": img_file}
-    #       data = {"question": question}
-    #       response = requests.post(BACKEND_URL, files=files, data=data)
-    #       ...
-    #
-    # For a simple text-based GPT request:
-    prompt = (
-        f"You see an image (imagine it’s attached). The user asks: \"{question}\"\n"
-        "What do you see in the image, and how would you answer that question?"
-    )
-    completion = openai.Completion.create(
-        engine="text-davinci-003",
-        prompt=prompt,
-        max_tokens=200
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode("utf-8")
+
+def process_image_and_question(image_path: str, question: str) -> str:
+    """
+    Use the GPT-4o-mini model with additional context prompt.
+    """
+    base64_image = encode_image(image_path)
+
+    system_context = """You are a helpful AI assistant that can see and analyze images. 
+    When answering questions about images, be detailed but concise in your observations. 
+    Focus on the most relevant aspects of the image that relate to the user's question."""
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": system_context
+            },
+            {
+                "role": "user", 
+                "content": [
+                    {
+                        "type": "text",
+                        "text": question,
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}",
+                            "detail": "high"
+                        }
+                    }
+                ]
+            }
+        ],
+        max_tokens=100
     )
 
-    text_response = completion.choices[0].text.strip()
-    return text_response
-
+    # Return the content of the first choice
+    return response.choices[0].message.content
 
 # ------------------------------------------------------------------------------
-# Main Desktop Workflow
+# Helper: Speak with LMNT
 # ------------------------------------------------------------------------------
 
-def main():
-    # Start the GUI in a separate thread
-    gui_thread = threading.Thread(target=create_gui)
-    gui_thread.start()
+async def speak_with_lmnt(text: str):
+    """
+    Use LMNT's async API to synthesize speech from text and play it.
+    """
+    if not LMNT_API_KEY or LMNT_API_KEY == "YOUR_LMNT_API_KEY":
+        print("[Warning] No valid LMNT_API_KEY found. Skipping TTS.")
+        return
 
     try:
-        # 1) Listen for a question
+        async with Speech(LMNT_API_KEY) as speech:
+            # Synthesize the text to speech
+            synthesis = await speech.synthesize(
+                text=text,
+                voice='lily',  # or your preferred voice
+                format='mp3'
+            )
+
+            # Save the audio to a temporary file
+            output_file = "response_temp.mp3"
+            with open(output_file, 'wb') as f:
+                f.write(synthesis['audio'])
+
+            # Play the audio using pygame
+            pygame.mixer.init()
+            pygame.mixer.music.load(output_file)
+            pygame.mixer.music.play()
+
+            # Wait for playback to finish
+            while pygame.mixer.music.get_busy():
+                await asyncio.sleep(0.1)
+
+            # Cleanup
+            if os.path.exists(output_file):
+                os.remove(output_file)
+
+    except Exception as e:
+        print(f"[Error] LMNT TTS synthesis failed: {e}")
+
+# ------------------------------------------------------------------------------
+# Main Workflow
+# ------------------------------------------------------------------------------
+
+async def main():
+    photo_path = None
+    try:
+        # 1) Listen for the user's question
         question = listen_for_question()
 
         # 2) Capture a photo
         photo_path = capture_photo()
         if not photo_path:
-            print("[Error] Could not capture photo. Exiting.")
+            print("Could not capture photo; exiting.")
             return
 
-        print(f"Photo saved to '{photo_path}'.")
-
-        # 3) Process with OpenAI or your backend
-        answer = process_image_and_question_with_openai(photo_path, question)
+        # 3) Send the question & image to OpenAI (image-capable endpoint)
+        answer = process_image_and_question(photo_path, question)
         print(f"Answer: {answer}")
 
-        # 4) Use LMNT TTS
-        speak_with_lmnt(answer)
+        # 4) Speak the response with LMNT
+        await speak_with_lmnt(answer)
 
     except Exception as e:
         print(f"[Error] {e}")
 
+    finally:
+        # Cleanup: Delete the photo if it exists
+        if photo_path and os.path.exists(photo_path):
+            os.remove(photo_path)
+            print(f"Deleted temporary photo: {photo_path}")
+
 # ------------------------------------------------------------------------------
-# Entry point
+# Entry Point
 # ------------------------------------------------------------------------------
 if __name__ == "__main__":
-    main() 
+    asyncio.run(main()) 
