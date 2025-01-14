@@ -89,9 +89,9 @@ def process_image_and_question(image_path: str, question: str) -> str:
     """
     base64_image = encode_image(image_path)
 
-    system_context = """You are a helpful AI assistant that can see and analyze images. 
+    system_context = """Your name is Son and you are a helpful AI vision assistant for the blind and visually impaired. 
     When answering questions about images, be detailed but concise in your observations. 
-    Focus on the most relevant aspects of the image that relate to the user's question."""
+    Focus on the most relevant aspects of the image that relate to the user's question. Your goal is to help the blind user userstand the images."""
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -170,18 +170,38 @@ async def speak_with_lmnt(text: str):
 # ------------------------------------------------------------------------------
 
 async def main():
+    camera = None
     photo_path = None
     try:
+        # Initialize and warm up camera
+        camera = cv2.VideoCapture(0)
+        if not camera.isOpened():
+            print("Error: Unable to access the camera.")
+            return
+
+        # Set camera properties for better exposure
+        camera.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
+        camera.set(cv2.CAP_PROP_BRIGHTNESS, 128)
+        
+        # Warm up the camera by capturing a few frames
+        for _ in range(5):
+            camera.read()
+            time.sleep(0.1)
+
         # 1) Listen for the user's question
         question = listen_for_question()
 
         # 2) Capture a photo
-        photo_path = capture_photo()
-        if not photo_path:
-            print("Could not capture photo; exiting.")
+        ret, frame = camera.read()
+        if not ret:
+            print("Error: Failed to capture image.")
             return
 
-        # 3) Send the question & image to OpenAI (image-capable endpoint)
+        photo_path = "desktop_photo.jpg"
+        cv2.imwrite(photo_path, frame)
+        print(f"Captured photo and saved to '{photo_path}'.")
+
+        # 3) Send the question & image to OpenAI
         answer = process_image_and_question(photo_path, question)
         print(f"Answer: {answer}")
 
@@ -190,9 +210,10 @@ async def main():
 
     except Exception as e:
         print(f"[Error] {e}")
-
     finally:
-        # Cleanup: Delete the photo if it exists
+        # Cleanup: Release camera and delete temporary photo
+        if camera is not None:
+            camera.release()
         if photo_path and os.path.exists(photo_path):
             os.remove(photo_path)
             print(f"Deleted temporary photo: {photo_path}")
