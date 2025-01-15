@@ -1,11 +1,9 @@
 struct VisionResponse: Codable {
     let result: String
     let error: String?
-}
-
-enum VisionError: Error {
-    case networkError
-    case invalidData
-    case unauthorized
-    case unknown(String)
+    
+    init(result: String, error: String? = nil) {
+        self.result = result
+        self.error = error
+    }
 } 

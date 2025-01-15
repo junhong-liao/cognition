@@ -174,6 +174,8 @@ async def speak_with_lmnt(text: str):
 async def main():
     camera = None
     photo_path = None
+    running = True
+
     try:
         # Initialize and warm up camera
         camera = cv2.VideoCapture(0)
@@ -190,28 +192,52 @@ async def main():
             camera.read()
             time.sleep(0.1)
 
-        # 1) Listen for the user's question
-        question = listen_for_question()
+        print("Son is ready! Say 'stop' to exit.")
+        await speak_with_lmnt("Hi! I'm Son. I'm here to help you navigate the world")
+        
+        while running:
+            try:
+                # 1) Listen for the user's question
+                question = listen_for_question()
+                
+                # Check if user wants to stop
+                if question.lower().strip() == "stop":
+                    print("Stopping the assistant...")
+                    break
 
-        # 2) Capture a photo
-        ret, frame = camera.read()
-        if not ret:
-            print("Error: Failed to capture image.")
-            return
+                # 2) Capture a photo
+                ret, frame = camera.read()
+                if not ret:
+                    print("Error: Failed to capture image.")
+                    continue
 
-        photo_path = "desktop_photo.jpg"
-        cv2.imwrite(photo_path, frame)
-        print(f"Captured photo and saved to '{photo_path}'.")
+                # Delete previous photo if it exists
+                if photo_path and os.path.exists(photo_path):
+                    os.remove(photo_path)
 
-        # 3) Send the question & image to OpenAI
-        answer = process_image_and_question(photo_path, question)
-        print(f"Answer: {answer}")
+                photo_path = "desktop_photo.jpg"
+                cv2.imwrite(photo_path, frame)
+                print(f"Captured photo and saved to '{photo_path}'.")
 
-        # 4) Speak the response with LMNT
-        await speak_with_lmnt(answer)
+                # 3) Send the question & image to OpenAI
+                answer = process_image_and_question(photo_path, question)
+                print(f"Answer: {answer}")
+
+                # 4) Speak the response with LMNT
+                await speak_with_lmnt(answer)
+
+                # Clean up photo after each successful interaction
+                if photo_path and os.path.exists(photo_path):
+                    os.remove(photo_path)
+                    print(f"Deleted temporary photo: {photo_path}")
+
+            except Exception as e:
+                print(f"[Error in interaction] {e}")
+                print("Ready for next question...")
+                continue
 
     except Exception as e:
-        print(f"[Error] {e}")
+        print(f"[Critical Error] {e}")
     finally:
         # Cleanup: Release camera and delete temporary photo
         if camera is not None:
@@ -219,9 +245,10 @@ async def main():
         if photo_path and os.path.exists(photo_path):
             os.remove(photo_path)
             print(f"Deleted temporary photo: {photo_path}")
-
+        print("Assistant stopped. Goodbye!")
+        await speak_with_lmnt("Goodbye")
 # ------------------------------------------------------------------------------
 # Entry Point
 # ------------------------------------------------------------------------------
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    asyncio.run(main())

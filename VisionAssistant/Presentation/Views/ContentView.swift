@@ -9,35 +9,20 @@ struct ContentView: View {
     
     var body: some View {
         VStack {
-            // Camera preview
             CameraView(isSetup: viewModel.isCameraSetup, isListening: viewModel.isListening)
             
-            // Recognized text display
             Text(viewModel.recognizedText)
                 .font(.system(size: 18))
                 .foregroundColor(viewModel.isListening ? .blue : .gray)
-                .padding()
-                .animation(.easeInOut, value: viewModel.isListening)
             
-            // Status text
-            Text(viewModel.isListening ? "Listening..." : "Tap microphone to ask a question")
-                .font(.caption)
-                .foregroundColor(.gray)
-                .padding(.bottom)
-            
-            // Listen button
-            ListenButton(isListening: viewModel.isListening) {
-                viewModel.toggleListening()
-            }
-            
-            if viewModel.isSpeaking {
-                HStack {
-                    Image(systemName: "waveform")
-                        .foregroundColor(.blue)
-                    Text("Speaking...")
-                        .foregroundColor(.blue)
+            Button(action: {
+                Task {
+                    await viewModel.startWorkflow()
                 }
-                .padding()
+            }) {
+                Image(systemName: viewModel.isListening ? "mic.fill" : "mic")
+                    .font(.system(size: 40))
+                    .foregroundColor(viewModel.isListening ? .red : .blue)
             }
         }
         .onAppear {

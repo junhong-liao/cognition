@@ -16,6 +16,9 @@ class VisionAssistantViewModel: ObservableObject {
     private let processImageUseCase: ProcessImageUseCase
     private let lmntSpeechService: SpeechSynthesizing
     
+    // Add camera warm-up state
+    private var isCameraWarmedUp: Bool = false
+    
     init(
         speechRecognizer: SpeechRecognizing,
         cameraController: CameraControlling,
@@ -100,6 +103,79 @@ class VisionAssistantViewModel: ObservableObject {
                         self.errorMessage = "Error: \(error)"
                     }
                 }
+            }
+        }
+    }
+    
+    func startWorkflow() async {
+        do {
+            // 1. Warm up camera if needed
+            if !isCameraWarmedUp {
+                try await warmUpCamera()
+            }
+            
+            // 2. Listen for question
+            let question = try await listenForQuestion()
+            self.recognizedText = question
+            
+            // 3. Capture photo
+            guard let image = try await capturePhoto() else {
+                throw VisionError.cameraError("Failed to capture image")
+            }
+            
+            // 4. Process image and question
+            let answer = try await processImageUseCase.execute(image: image, question: question)
+            
+            // 5. Speak response
+            await MainActor.run {
+                self.response = answer
+                self.isSpeaking = true
+            }
+            try await lmntSpeechService.speak(answer)
+            
+            await MainActor.run {
+                self.isSpeaking = false
+            }
+            
+        } catch {
+            await MainActor.run {
+                self.errorMessage = error.localizedDescription
+                self.isListening = false
+                self.isSpeaking = false
+            }
+        }
+    }
+    
+    private func warmUpCamera() async throws {
+        guard let camera = cameraController else {
+            throw VisionError.cameraError("Camera not initialized")
+        }
+        
+        // Warm up sequence
+        try await camera.prepare()
+        try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+        isCameraWarmedUp = true
+    }
+    
+    private func listenForQuestion() async throws -> String {
+        await MainActor.run { self.isListening = true }
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            speechRecognizer.startRecording { result in
+                switch result {
+                case .success(let text):
+                    continuation.resume(returning: text)
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+    
+    private func capturePhoto() async throws -> UIImage? {
+        return try await withCheckedThrowingContinuation { continuation in
+            cameraController.capturePhoto { image in
+                continuation.resume(returning: image)
             }
         }
     }

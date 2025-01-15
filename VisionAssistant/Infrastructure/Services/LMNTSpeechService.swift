@@ -1,30 +1,43 @@
 import Foundation
 import AVFoundation
 
-class AudioPlayerService: SpeechSynthesizing {
-    @Published var isSpeaking = false
-    private var player: AVAudioPlayer?
+protocol SpeechSynthesizing {
+    func speak(_ text: String) async throws
+    func stop()
+}
+
+class LMNTSpeechService: SpeechSynthesizing {
+    private let apiKey: String
+    
+    init(apiKey: String) {
+        self.apiKey = apiKey
+    }
     
     func speak(_ text: String) async throws {
-        // Get audio data from backend
-        let audioData = try await NetworkManager.shared.getSpeechAudio(for: text)
+        let url = URL(string: "https://api.lmnt.com/v1/speech/synthesize")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        try await MainActor.run {
-            player = try AVAudioPlayer(data: audioData)
-            player?.delegate = self
-            isSpeaking = true
-            player?.play()
-        }
+        let body = [
+            "text": text,
+            "voice": "lily",
+            "format": "mp3"
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, _) = try await URLSession.shared.data(for: request)
+        
+        // Play the audio
+        try await playAudio(data)
+    }
+    
+    private func playAudio(_ data: Data) async throws {
+        // Implementation for playing the audio
     }
     
     func stop() {
-        player?.stop()
-        isSpeaking = false
-    }
-}
-
-extension AudioPlayerService: AVAudioPlayerDelegate {
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        isSpeaking = false
+        // Implementation for stopping audio playback
     }
 } 
