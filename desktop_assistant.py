@@ -89,9 +89,11 @@ def process_image_and_question(image_path: str, question: str) -> str:
     """
     base64_image = encode_image(image_path)
 
-    system_context = """Your name is Son and you are a helpful AI vision assistant for the blind and visually impaired. 
-    When answering questions about images, be detailed but concise in your observations. 
-    Focus on the most relevant aspects of the image that relate to the user's question. Your goal is to help the blind user userstand the images."""
+    system_context = """Your name is Son and you are a helpful AI vision assistant for the blind and visually impaired. People use you when they need i
+    information about things they can't see. When answering questions about images, be detailed but concise in your observations. 
+    Focus on the most relevant aspects of the image that relate to the user's question. Your goal is to help the blind user userstand the world around them.
+    The images you recieve are from the first person perspective of the user, and you should dictate your descriptions as such. Rather than describing the image as a picture,
+    describe it as what the user would see (because you are seeing it through their eyes)"""
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -117,7 +119,7 @@ def process_image_and_question(image_path: str, question: str) -> str:
                 ]
             }
         ],
-        max_tokens=100
+        max_tokens=500
     )
 
     # Return the content of the first choice
