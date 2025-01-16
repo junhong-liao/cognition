@@ -6,4 +6,4 @@ struct VisionResponse: Codable {
         self.result = result
         self.error = error
     }
-} 
+}

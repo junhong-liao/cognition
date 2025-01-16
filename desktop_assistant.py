@@ -1,4 +1,5 @@
 from dotenv import load_dotenv
+from datetime import datetime
 
 # Load environment variables from .env file
 load_dotenv()
@@ -88,12 +89,10 @@ def process_image_and_question(image_path: str, question: str) -> str:
     Use the GPT-4o-mini model with additional context prompt.
     """
     base64_image = encode_image(image_path)
-
-    system_context = """Your name is Son and you are a helpful AI vision assistant for the blind and visually impaired. People use you when they need i
-    information about things they can't see. When answering questions about images, be detailed but concise in your observations. 
-    Focus on the most relevant aspects of the image that relate to the user's question. Your goal is to help the blind user userstand the world around them.
-    The images you recieve are from the first person perspective of the user, and you should dictate your descriptions as such. Rather than describing the image as a picture,
-    describe it as what the user would see (because you are seeing it through their eyes)"""
+    
+    # Shorter system context
+    system_context = """You are Son, a concise yet informative vision assistant for the visually impaired. Start descriptions with 'I see'""
+"""
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -105,24 +104,20 @@ def process_image_and_question(image_path: str, question: str) -> str:
             {
                 "role": "user", 
                 "content": [
-                    {
-                        "type": "text",
-                        "text": question,
-                    },
+                    {"type": "text", "text": question},
                     {
                         "type": "image_url",
                         "image_url": {
                             "url": f"data:image/jpeg;base64,{base64_image}",
-                            "detail": "high"
+                            "detail": "low"  # Change to low unless high detail is needed
                         }
                     }
                 ]
             }
         ],
-        max_tokens=500
+        max_tokens=300  # Reduced from 500
     )
 
-    # Return the content of the first choice
     return response.choices[0].message.content
 
 # ------------------------------------------------------------------------------
@@ -139,11 +134,11 @@ async def speak_with_lmnt(text: str):
 
     try:
         async with Speech(LMNT_API_KEY) as speech:
-            # Synthesize the text to speech
             synthesis = await speech.synthesize(
                 text=text,
-                voice='lily',  # or your preferred voice
-                format='mp3'
+                voice='lily',
+                format='mp3',
+                speed=1.1  # I currently like this speed 
             )
 
             # Save the audio to a temporary file
@@ -171,34 +166,49 @@ async def speak_with_lmnt(text: str):
 # Main Workflow
 # ------------------------------------------------------------------------------
 
+def log_timing(operation: str, start_time: datetime) -> float:    # for figuringout latency issues. biggest hurdle rn is openai api
+    """Calculate and log the duration of an operation."""
+    duration = (datetime.now() - start_time).total_seconds()
+    print(f"{operation}: {duration:.2f} seconds")
+    return duration
+
 async def main():
     camera = None
     photo_path = None
     running = True
 
     try:
+        total_start_time = datetime.now()
         # Initialize and warm up camera
+        camera_start = datetime.now()
         camera = cv2.VideoCapture(0)
         if not camera.isOpened():
             print("Error: Unable to access the camera.")
             return
 
-        # Set camera properties for better exposure
-        camera.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
-        camera.set(cv2.CAP_PROP_BRIGHTNESS, 128)
+        # Camera setup and warmup
+        camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        camera.set(cv2.CAP_PROP_FPS, 30)
+        camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         
-        # Warm up the camera by capturing a few frames
-        for _ in range(5):
+        for _ in range(2):
             camera.read()
-            time.sleep(0.1)
+            await asyncio.sleep(0.05)
+        
+        log_timing("Camera initialization", camera_start)
 
         print("Son is ready! Say 'stop' to exit.")
         await speak_with_lmnt("Hi! I'm Son. I'm here to help you navigate the world")
         
-        while running:
+        while running:   # while loop so it wont stop after one request
             try:
+                iteration_start = datetime.now()
+                
                 # 1) Listen for the user's question
+                listen_start = datetime.now()
                 question = listen_for_question()
+                listen_duration = log_timing("Speech recognition", listen_start)
                 
                 # Check if user wants to stop
                 if question.lower().strip() == "stop":
@@ -206,6 +216,7 @@ async def main():
                     break
 
                 # 2) Capture a photo
+                photo_start = datetime.now()
                 ret, frame = camera.read()
                 if not ret:
                     print("Error: Failed to capture image.")
@@ -217,19 +228,30 @@ async def main():
 
                 photo_path = "desktop_photo.jpg"
                 cv2.imwrite(photo_path, frame)
-                print(f"Captured photo and saved to '{photo_path}'.")
+                photo_duration = log_timing("Photo capture", photo_start)
 
                 # 3) Send the question & image to OpenAI
+                gpt_start = datetime.now()
                 answer = process_image_and_question(photo_path, question)
-                print(f"Answer: {answer}")
+                gpt_duration = log_timing("GPT processing", gpt_start)
 
                 # 4) Speak the response with LMNT
+                speech_start = datetime.now()
                 await speak_with_lmnt(answer)
+                speech_duration = log_timing("Speech synthesis and playback", speech_start)
+
+                # Log total iteration time
+                total_duration = log_timing("Total iteration", iteration_start)
+                print(f"\nBreakdown for this iteration:")
+                print(f"Speech Recognition: {listen_duration:.2f}s ({(listen_duration/total_duration)*100:.1f}%)")
+                print(f"Photo Capture: {photo_duration:.2f}s ({(photo_duration/total_duration)*100:.1f}%)")
+                print(f"GPT Processing: {gpt_duration:.2f}s ({(gpt_duration/total_duration)*100:.1f}%)")
+                print(f"Speech Synthesis: {speech_duration:.2f}s ({(speech_duration/total_duration)*100:.1f}%)")
+                print(f"Total Time: {total_duration:.2f}s\n")
 
                 # Clean up photo after each successful interaction
                 if photo_path and os.path.exists(photo_path):
                     os.remove(photo_path)
-                    print(f"Deleted temporary photo: {photo_path}")
 
             except Exception as e:
                 print(f"[Error in interaction] {e}")
@@ -239,12 +261,12 @@ async def main():
     except Exception as e:
         print(f"[Critical Error] {e}")
     finally:
-        # Cleanup: Release camera and delete temporary photo
+        # Cleanup and log total runtime
         if camera is not None:
             camera.release()
         if photo_path and os.path.exists(photo_path):
             os.remove(photo_path)
-            print(f"Deleted temporary photo: {photo_path}")
+        total_runtime = log_timing("Total runtime", total_start_time)
         print("Assistant stopped. Goodbye!")
         await speak_with_lmnt("Goodbye")
 # ------------------------------------------------------------------------------
