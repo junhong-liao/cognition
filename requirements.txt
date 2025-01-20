@@ -8,4 +8,4 @@ opencv-python-headless
 pyaudio
 lmnt
 flask-cors
-dotenv
+python-dotenv
